@@ -10,6 +10,7 @@
 import argparse
 
 from omni.isaac.lab.app import AppLauncher
+import carb
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from RL-Games.")
@@ -38,6 +39,11 @@ if args_cli.video:
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+settings = carb.settings.get_settings()
+settings.set("/rtx/post/dlss/enable", False)
+settings.set("/rtx-transient/dlssg/enabled", False)
+settings.set("/rtx/post/aa/op", 0)
+
 """Rest everything follows."""
 
 
@@ -63,24 +69,24 @@ import onnx
 
 
 class ModelWrapper(torch.nn.Module):
-    '''
+    """
     Main idea is to ignore outputs which we don't need from model
-    '''
+    """
+
     def __init__(self, model):
         torch.nn.Module.__init__(self)
         self._model = model
-        
-        
-    def forward(self,input_dict):
-        input_dict['obs'] = self._model.norm_obs(input_dict['obs'])
-        '''
+
+    def forward(self, input_dict):
+        input_dict["obs"] = self._model.norm_obs(input_dict["obs"])
+        """
         just model export doesn't work. Looks like onnx issue with torch distributions
         thats why we are exporting only neural network
-        '''
-        #print(input_dict)
-        #output_dict = self._model.a2c_network(input_dict)
-        #input_dict['is_train'] = False
-        #return output_dict['logits'], output_dict['values']
+        """
+        # print(input_dict)
+        # output_dict = self._model.a2c_network(input_dict)
+        # input_dict['is_train'] = False
+        # return output_dict['logits'], output_dict['values']
         return self._model.a2c_network(input_dict)
 
 
@@ -174,7 +180,7 @@ def main():
     #     traced = torch.jit.trace(adapter, adapter.flattened_inputs, check_trace=False)
     #     flattened_outputs = traced(*adapter.flattened_inputs)
     #     print(flattened_outputs)
-        
+
     # filename = "policy.onnx"
     # export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
     # if not os.path.exists(export_model_dir):
@@ -183,8 +189,8 @@ def main():
 
     # export policy to onnx with dynamic batch size
     inputs = {
-        'obs': torch.zeros((1,) + agent.obs_shape).to(agent.device),
-        'rnn_states': agent.states,
+        "obs": torch.zeros((1,) + agent.obs_shape).to(agent.device),
+        "rnn_states": agent.states,
     }
 
     with torch.no_grad():
@@ -193,29 +199,29 @@ def main():
         flattened_outputs = traced(*adapter.flattened_inputs)
         print(flattened_outputs)
 
-    filename = "policy_dynamic.onnx"
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    if not os.path.exists(export_model_dir):
-        os.makedirs(export_model_dir, exist_ok=True)
+    # filename = "policy_dynamic.onnx"
+    # export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
+    # if not os.path.exists(export_model_dir):
+    #     os.makedirs(export_model_dir, exist_ok=True)
 
-    # Specify dynamic axes for inputs and outputs
-    dynamic_axes = {
-        'obs': {0: 'batch_size'},  # dynamic batch size for obs
-        'mu': {0: 'batch_size'},   # dynamic batch size for mu output
-        'log_std': {0: 'batch_size'},  # dynamic batch size for log_std
-        'value': {0: 'batch_size'},    # dynamic batch size for value
-    }
+    # # Specify dynamic axes for inputs and outputs
+    # dynamic_axes = {
+    #     'obs': {0: 'batch_size'},  # dynamic batch size for obs
+    #     'mu': {0: 'batch_size'},   # dynamic batch size for mu output
+    #     'log_std': {0: 'batch_size'},  # dynamic batch size for log_std
+    #     'value': {0: 'batch_size'},    # dynamic batch size for value
+    # }
 
-    torch.onnx.export(
-        traced,
-        tuple(adapter.flattened_inputs),
-        os.path.join(export_model_dir, filename),
-        verbose=True,
-        input_names=['obs'],
-        output_names=['mu', 'log_std', 'value'],
-        dynamic_axes=dynamic_axes,
-        opset_version=11  # Use at least opset 11 for better dynamic shape support
-    )
+    # torch.onnx.export(
+    #     traced,
+    #     tuple(adapter.flattened_inputs),
+    #     os.path.join(export_model_dir, filename),
+    #     verbose=True,
+    #     input_names=['obs'],
+    #     output_names=['mu', 'log_std', 'value'],
+    #     dynamic_axes=dynamic_axes,
+    #     opset_version=11  # Use at least opset 11 for better dynamic shape support
+    # )
 
     # reset environment
     obs = env.reset()

@@ -11,13 +11,11 @@ import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.actuators import ImplicitActuatorCfg
 from omni.isaac.lab.assets import ArticulationCfg
 
-
-
 ##
 # Configuration
 ##
 
-USD_PATH = "/home/m4pc/src/atmo_urdf/atmo/atmo.usd"
+USD_PATH = "/home/warren/Documents/m4/m4/m4.usd"
 
 ATMO_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
@@ -43,7 +41,6 @@ ATMO_CFG = ArticulationCfg(
         },
     ),
     actuators={
-                
         "arml_actuator": ImplicitActuatorCfg(
             joint_names_expr=["base_to_arml"],
             effort_limit=1e16,
@@ -52,10 +49,10 @@ ATMO_CFG = ArticulationCfg(
             damping=1e5,
         ),
         "armr_actuator": ImplicitActuatorCfg(
-            joint_names_expr=["base_to_armr"], 
-            effort_limit=1e16, 
-            velocity_limit=30, 
-            stiffness=1e15, 
+            joint_names_expr=["base_to_armr"],
+            effort_limit=1e16,
+            velocity_limit=30,
+            stiffness=1e15,
             damping=1e5,
         ),
     },

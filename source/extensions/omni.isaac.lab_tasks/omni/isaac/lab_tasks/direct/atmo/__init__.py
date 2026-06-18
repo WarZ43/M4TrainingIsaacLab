@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-ATMO environment.
+M4 landing environment.
 """
 
 import gymnasium as gym
@@ -16,11 +16,11 @@ from . import agents
 ##
 
 gym.register(
-    id="atmo",
-    entry_point=f"{__name__}.atmo_env:ATMOEnv",
+    id="m4",
+    entry_point=f"{__name__}.m4_env:M4Env",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.atmo_env:ATMOEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.m4_env:M4EnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:ATMOPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
