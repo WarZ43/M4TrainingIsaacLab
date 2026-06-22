@@ -26,14 +26,15 @@ from omni.isaac.lab.sensors import ContactSensorCfg, ContactSensor
 from omni.isaac.lab_assets import ATMO_CFG as ATMO_ROBOT_CFG  # isort: skip
 from omni.isaac.lab.markers import CUBOID_MARKER_CFG  # isort: skip
 
-from .landing_task import LandingTask
+from .landing_task import LandingTask, LandingTaskCfg
 from .randomizations import M4Randomizer
+from .takeoff_task import TakeoffTask, TakeoffTaskCfg
 from .vehicle_adapters import GenericM4VehicleAdapter
 from .vehicle_specs import ATMO_SPEC
 
 
 class M4EnvWindow(BaseEnvWindow):
-    """Window manager for the M4 landing environment."""
+    """Window manager for the M4 task environment."""
 
     def __init__(self, env: M4Env, window_name: str = "IsaacLab"):
         """Initialize the window.
@@ -62,18 +63,31 @@ class M4EnvCfg(DirectRLEnvCfg):
     actuator_dynamics = True
     randomize_motor_dynamics = True
     quantize_tilt_action = True
+    task_name = "landing"
+    seed = 42
 
-    # curriculum stage selection: 1 = vertical-thrust landing, 2 = morpholanding
+    # curriculum stage selection: 1 = base-frame quadcopter thrust, 2 = per-rotor thrust vectoring
     curriculum_stage = 2
     rotate_rotor_thrust_by_stage = [False, True]
-    contact_reward_requires_xy_by_stage = [True, False]
+    rotate_rotor_thrust_by_body_by_stage = [True, False]
+    collective_vertical_thrust_by_stage = [False, False]
+    collapse_rotor_wrench_to_base_by_stage = [False, False]
+    apply_rotor_moments_by_stage = [True, True]
+    rotor_moment_scale_by_stage = [0.1, 1.0]
+    ramp_steps_per_epoch = 24
+    thrust_rotation_ramp_start_epoch = 0.0
+    thrust_rotation_ramp_end_epoch = 0.0
+    disturbance_ramp_start_epoch = 0.0
+    disturbance_ramp_end_epoch = 0.0
 
     curriculum_update_rate = 8e3
     curriculum_steps_to_completion = curriculum_update_rate * 10
+    landing: LandingTaskCfg = LandingTaskCfg()
+    takeoff: TakeoffTaskCfg = TakeoffTaskCfg()
 
     # action history
     action_history_length = 25
-    observation_history_length = 24
+    observation_history_length = 25
 
     # env
     episode_length_s = 5.0
@@ -82,11 +96,22 @@ class M4EnvCfg(DirectRLEnvCfg):
     action_space = ATMO_SPEC.action_dim
 
     num_obs = ATMO_SPEC.observation_dim
-    observation_space = ((observation_history_length + 1) * num_obs) + (action_space * action_history_length)
+    num_current_obs = ATMO_SPEC.current_observation_dim
+    observation_space = (
+        (observation_history_length * num_obs) + (action_space * action_history_length) + num_current_obs
+    )
 
     num_privileged_obs = 7 + action_space
     state_space = 0
     debug_vis = True
+    thrust_vector_debug_vis = True
+    thrust_vector_debug_num_envs = 64
+    thrust_vector_debug_scale = 0.02
+    disturbance_force_debug_scale = 0.04
+    disturbance_moment_debug_scale = 0.25
+    thrust_vector_debug_line_width = 3.0
+    thrust_vector_debug_head_length = 0.08
+    thrust_vector_debug_head_width = 0.035
     num_envs = 32768
 
     ui_window_class_type = M4EnvWindow
@@ -96,6 +121,10 @@ class M4EnvCfg(DirectRLEnvCfg):
         dt=sim_dt,
         render_interval=decimation,
         disable_contact_processing=True,
+        physx=sim_utils.PhysxCfg(
+            gpu_max_rigid_patch_count=2**19,
+            gpu_max_rigid_contact_count=2**24,
+        ),
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
@@ -129,38 +158,9 @@ class M4EnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/.*", track_air_time=True, history_length=2
     )
 
-    # termination conditions
-    too_fast_vel = [2.0, 2.0]
-    termination_dxy = [1.50, 3.50]
-    termination_height = [3.0, 3.0]
-
     # observation delay (num steps)
-    observation_buffer_length = 25
+    observation_buffer_length = observation_history_length
     observation_delay = 0
-
-    # acceptance state radius
-    delta_d = [0.40, 0.60]
-
-    # desired velocity
-    vx_des, vy_des, vz_des = 0.0, 0.0, -0.50
-
-    # reward scales
-    lin_vel_pen_scale = [-0.10, -0.10]
-    ang_vel_pen_scale = [-0.30, -0.30]
-    spin_pen_scale = [-0.30, -0.30]
-    action_rate_pen_scale = [-0.80, -0.30]
-    ground_thrust_pen_scale = [-0.13, -0.13]
-    orientation_pen_scale = [-0.10, -0.10]
-
-    impulse_pen = [-1.0, -0.25]
-    died_pen = [-10.0, -10.0]
-    timeout_pen = [-2.0, -32.0]
-
-    distance_to_goal_xy_rew_scale = [0.30, 0.10]
-    descending_rew_scale = [0.30, 0.60]
-    tilt_rew_scale = [0.80, 0.80]
-    contact_in_acceptance_rew_scale = [0.40, 4.00]
-    touchdown_rew_scale = [0.00, 3.00]
 
     # nominal parameters
     kT_0 = 28.15
@@ -168,8 +168,8 @@ class M4EnvCfg(DirectRLEnvCfg):
     max_tilt_vel_0 = pi / 8
 
     # random force and torque scales
-    disturbance_force_scale = 4 * kT_0 * 0.50  # best 0.05
-    disturbance_moment_scale = 4 * kT_0 * kM_0 * 0.05  # best 0.05
+    disturbance_force_scale = 4 * kT_0 * 0.05
+    disturbance_moment_scale = 4 * kT_0 * kM_0 * 0.005
 
     dist_force_cts_scale = 4 * kT_0 * 0.0
     dist_moment_cts_scale = 4 * kT_0 * kM_0 * 0.0
@@ -178,7 +178,7 @@ class M4EnvCfg(DirectRLEnvCfg):
     kT_error_scale = 0.2
     kM_error_scale = 0.2
     # Scalar or stage-indexed maximum per-rotor thrust loss. VehicleSpec decides the start stage.
-    thrust_loss_max = 0.2
+    thrust_loss_max = [0.0, 0.2]
     max_tilt_vel_error_scale = 0.2
     initial_height_range = [1.0, 2.0]
     initial_lin_vel_range = [-0.1, 0.1]
@@ -213,10 +213,12 @@ class M4Env(DirectRLEnv):
         self.box_extent = 0.1
         self.curriculum_update_time = 0
         self.distance_to_goal_epoch_av = 0.0
+        self._global_env_step = 0
+        self._debug_draw = None
 
         self.vehicle = GenericM4VehicleAdapter(self, ATMO_SPEC)
         self.vehicle.initialize()
-        self.task = LandingTask(self)
+        self.task = self._make_task()
         self.randomizer = M4Randomizer(self)
 
         # add handle for debug visualization (this is set to a valid handle inside set_debug_vis)
@@ -226,6 +228,35 @@ class M4Env(DirectRLEnv):
 
     def _stage_value(self, values, name: str):
         return self.task.stage_value(values, name)
+
+    def _training_epoch(self) -> float:
+        return float(self._global_env_step) / max(float(self.cfg.ramp_steps_per_epoch), 1.0)
+
+    def _epoch_ramp(self, start_epoch: float, end_epoch: float) -> float:
+        if end_epoch <= start_epoch:
+            return 1.0
+        progress = (self._training_epoch() - float(start_epoch)) / (float(end_epoch) - float(start_epoch))
+        return max(0.0, min(1.0, progress))
+
+    def thrust_rotation_weight(self) -> float:
+        return self._epoch_ramp(
+            self.cfg.thrust_rotation_ramp_start_epoch,
+            self.cfg.thrust_rotation_ramp_end_epoch,
+        )
+
+    def disturbance_weight(self) -> float:
+        return self._epoch_ramp(
+            self.cfg.disturbance_ramp_start_epoch,
+            self.cfg.disturbance_ramp_end_epoch,
+        )
+
+    def _make_task(self):
+        task_name = self.cfg.task_name.lower()
+        if task_name == "landing":
+            return LandingTask(self, self.cfg.landing)
+        if task_name == "takeoff":
+            return TakeoffTask(self, self.cfg.takeoff)
+        raise ValueError(f"Unsupported task_name '{self.cfg.task_name}'. Expected 'landing' or 'takeoff'.")
 
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
@@ -246,6 +277,7 @@ class M4Env(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        self._global_env_step += 1
         self.vehicle.pre_physics_step(actions)
 
     def _apply_action(self):
@@ -286,13 +318,133 @@ class M4Env(DirectRLEnv):
                 marker_cfg.markers["cuboid"].size = (0.05, 0.05, 0.05)
                 marker_cfg.prim_path = "/Visuals/Command/goal_position"
                 self.goal_pos_visualizer = VisualizationMarkers(marker_cfg)
+            if self._debug_draw is None:
+                try:
+                    from omni.isaac.debug_draw import _debug_draw
+
+                    self._debug_draw = _debug_draw.acquire_debug_draw_interface()
+                except Exception:
+                    self._debug_draw = None
             self.goal_pos_visualizer.set_visibility(True)
         else:
             if hasattr(self, "goal_pos_visualizer"):
                 self.goal_pos_visualizer.set_visibility(False)
+            if self._debug_draw is not None:
+                self._debug_draw.clear_lines()
 
     def _debug_vis_callback(self, event):
         self.goal_pos_visualizer.visualize(self._desired_pos_w)
+        self._draw_force_debug_vectors()
+
+    def _draw_force_debug_vectors(self):
+        if not self.cfg.thrust_vector_debug_vis or self._debug_draw is None:
+            return
+        if not hasattr(self, "_debug_thrust_w") or not self.vehicle.rotor_ids:
+            return
+
+        num_envs = min(int(self.cfg.thrust_vector_debug_num_envs), self.num_envs)
+        if num_envs <= 0:
+            self._debug_draw.clear_lines()
+            return
+
+        body_pos_w = getattr(self._robot.data, "body_pos_w", None)
+        if body_pos_w is None:
+            body_pos_w = self._robot.data.body_state_w[..., :3]
+        rotor_pos_w = body_pos_w[:num_envs, self.vehicle.rotor_ids, :]
+        thrust_w = self._debug_thrust_w[:num_envs]
+        moment_w = self._debug_moment_w[:num_envs]
+        starts = []
+        ends = []
+        colors = []
+        widths = []
+
+        thrust_starts = rotor_pos_w.reshape(-1, 3)
+        thrust_ends = (rotor_pos_w + self.cfg.thrust_vector_debug_scale * thrust_w).reshape(-1, 3)
+        moment_z = moment_w.reshape(-1, 3)[:, 2]
+        thrust_colors = [self._moment_debug_color(moment_value) for moment_value in moment_z.detach().cpu().tolist()]
+        self._append_debug_arrows(thrust_starts, thrust_ends, thrust_colors, starts, ends, colors, widths)
+
+        if hasattr(self, "_debug_disturbance_force_w"):
+            base_pos_w = body_pos_w[:num_envs, self.vehicle.base_link, :].unsqueeze(1)
+            dist_force_w = self._debug_disturbance_force_w[:num_envs]
+            force_starts = base_pos_w.reshape(-1, 3)
+            force_ends = (base_pos_w + self.cfg.disturbance_force_debug_scale * dist_force_w).reshape(-1, 3)
+            force_colors = [(1.0, 0.2, 1.0, 1.0)] * force_starts.shape[0]
+            self._append_debug_arrows(force_starts, force_ends, force_colors, starts, ends, colors, widths)
+
+        if hasattr(self, "_debug_disturbance_moment_w"):
+            base_pos_w = body_pos_w[:num_envs, self.vehicle.base_link, :].unsqueeze(1)
+            dist_moment_w = self._debug_disturbance_moment_w[:num_envs]
+            moment_starts = (base_pos_w + torch.tensor([0.0, 0.0, 0.12], device=self.device)).reshape(-1, 3)
+            moment_ends = (
+                base_pos_w
+                + torch.tensor([0.0, 0.0, 0.12], device=self.device)
+                + self.cfg.disturbance_moment_debug_scale * dist_moment_w
+            ).reshape(-1, 3)
+            moment_colors = [(1.0, 1.0, 1.0, 1.0)] * moment_starts.shape[0]
+            self._append_debug_arrows(moment_starts, moment_ends, moment_colors, starts, ends, colors, widths)
+
+        self._debug_draw.clear_lines()
+        if not starts:
+            return
+        self._debug_draw.draw_lines(starts, ends, colors, widths)
+
+    def _append_debug_arrows(
+        self,
+        arrow_starts: torch.Tensor,
+        arrow_ends: torch.Tensor,
+        arrow_colors: list[tuple[float, float, float, float]],
+        starts: list[list[float]],
+        ends: list[list[float]],
+        colors: list[tuple[float, float, float, float]],
+        widths: list[float],
+    ):
+        vectors = arrow_ends - arrow_starts
+        lengths = torch.linalg.norm(vectors, dim=1, keepdim=True)
+        valid = lengths.squeeze(dim=1) > 1e-6
+        starts.extend(arrow_starts.detach().cpu().tolist())
+        ends.extend(arrow_ends.detach().cpu().tolist())
+        colors.extend(arrow_colors)
+        widths.extend([float(self.cfg.thrust_vector_debug_line_width)] * arrow_starts.shape[0])
+        if torch.any(valid):
+            directions = vectors[valid] / lengths[valid].clamp_min(1e-6)
+            up = torch.zeros_like(directions)
+            up[:, 2] = 1.0
+            nearly_vertical = torch.abs(directions[:, 2]) > 0.95
+            up[nearly_vertical] = torch.tensor([1.0, 0.0, 0.0], device=up.device)
+            side = torch.cross(directions, up, dim=1)
+            side = side / torch.linalg.norm(side, dim=1, keepdim=True).clamp_min(1e-6)
+
+            head_length = torch.clamp(
+                0.25 * lengths[valid],
+                max=float(self.cfg.thrust_vector_debug_head_length),
+            )
+            head_width = torch.clamp(
+                0.12 * lengths[valid],
+                max=float(self.cfg.thrust_vector_debug_head_width),
+            )
+            tip = arrow_ends[valid]
+            head_center = tip - head_length * directions
+            left = head_center + head_width * side
+            right = head_center - head_width * side
+
+            valid_colors = [color for color, keep in zip(arrow_colors, valid.detach().cpu().tolist()) if keep]
+            starts.extend(tip.detach().cpu().tolist())
+            ends.extend(left.detach().cpu().tolist())
+            colors.extend(valid_colors)
+            widths.extend([float(self.cfg.thrust_vector_debug_line_width)] * len(valid_colors))
+            starts.extend(tip.detach().cpu().tolist())
+            ends.extend(right.detach().cpu().tolist())
+            colors.extend(valid_colors)
+            widths.extend([float(self.cfg.thrust_vector_debug_line_width)] * len(valid_colors))
+
+    @staticmethod
+    def _moment_debug_color(moment_z: float) -> tuple[float, float, float, float]:
+        if moment_z > 1e-6:
+            return (0.0, 0.75, 1.0, 1.0)
+        if moment_z < -1e-6:
+            return (1.0, 0.35, 0.0, 1.0)
+        return (0.7, 0.7, 0.7, 1.0)
 
     def random_quaternion(self, num):
         roll = torch.pi / 6 * (2 * torch.rand(num, dtype=torch.float) - 1)

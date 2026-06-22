@@ -41,8 +41,8 @@ params:
     #   layers: 3
     #   before_mlp: True
 
-  load_checkpoint: True
-  load_path: 'runs/atmo_distributed/nn/atmo.pth'
+  load_checkpoint: False
+  load_path: ''
 
   config:
     name: atmo
@@ -51,7 +51,7 @@ params:
     device_name: 'cuda:0'
     multi_gpu: True
     ppo: True
-    mixed_precision: True
+    mixed_precision: False
     normalize_input: True
     normalize_value: True
     value_bootstrap: True

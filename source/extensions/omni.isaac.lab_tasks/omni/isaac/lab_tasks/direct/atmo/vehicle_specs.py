@@ -19,6 +19,8 @@ class RotorSpec:
     spin_direction: float
     kT: float
     kM: float
+    thrust_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    axis_body_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,7 @@ class ObservationSourceSpec:
     source: str
     noise_scale: str | float = 0.0
     joint_group: str | None = None
+    history: bool = True
 
 
 @dataclass(frozen=True)
@@ -70,14 +73,14 @@ class VehicleSpec:
     landing_tuck_joint_group: str | None = None
     landing_tuck_target: float = pi / 2
     thrust_loss_start_stage: int | None = 1
+    takeoff_target_lin_vel_w: tuple[float, float, float] = (0.0, 0.0, 0.3)
 
     def make_action_schema(self) -> ActionSchema:
         return ActionSchema(self.action_terms)
 
-    def make_observation_schema(self) -> ObservationSchema:
+    def make_observation_schema(self, history: bool = True) -> ObservationSchema:
         return ObservationSchema(
-            ObservationTerm(term.name, term.size)
-            for term in self.observation_terms
+            ObservationTerm(term.name, term.size) for term in self.observation_terms if term.history == history
         )
 
     @property
@@ -86,17 +89,21 @@ class VehicleSpec:
 
     @property
     def observation_dim(self) -> int:
-        return sum(term.size for term in self.observation_terms)
+        return sum(term.size for term in self.observation_terms if term.history)
+
+    @property
+    def current_observation_dim(self) -> int:
+        return sum(term.size for term in self.observation_terms if not term.history)
 
 
 ATMO_SPEC = VehicleSpec(
     name="atmo",
     base_body_name="base_link",
     rotors=(
-        RotorSpec("rotor0", "rotor_thrust", 0, -1.0, kT=28.15, kM=0.018),
-        RotorSpec("rotor1", "rotor_thrust", 1, -1.0, kT=28.15, kM=0.018),
-        RotorSpec("rotor2", "rotor_thrust", 2, 1.0, kT=28.15, kM=0.018),
-        RotorSpec("rotor3", "rotor_thrust", 3, 1.0, kT=28.15, kM=0.018),
+        RotorSpec("rotor0", "rotor_thrust", 0, -1.0, kT=28.15, kM=0.018, axis_body_name="armr"),
+        RotorSpec("rotor1", "rotor_thrust", 1, -1.0, kT=28.15, kM=0.018, axis_body_name="arml"),
+        RotorSpec("rotor2", "rotor_thrust", 2, 1.0, kT=28.15, kM=0.018, axis_body_name="arml"),
+        RotorSpec("rotor3", "rotor_thrust", 3, 1.0, kT=28.15, kM=0.018, axis_body_name="armr"),
     ),
     joint_groups=(
         JointGroupSpec(
@@ -120,12 +127,14 @@ ATMO_SPEC = VehicleSpec(
         ActionTerm("morph_tilt", 1, 0.0, 1.0),
     ),
     observation_terms=(
-        ObservationSourceSpec("relative_pos_w", 3, "relative_pos_w", "pos_noise_scale"),
+        ObservationSourceSpec("root_pos", 3, "root_pos_local", "pos_noise_scale"),
+        ObservationSourceSpec("target_pos", 3, "target_pos_local", "pos_noise_scale", history=False),
         ObservationSourceSpec("root_rotation_matrix", 9, "root_rotation_matrix", "rot_noise_scale"),
         ObservationSourceSpec("root_lin_vel_w", 3, "root_lin_vel_w", "lin_vel_noise_scale"),
         ObservationSourceSpec("root_ang_vel_b", 3, "root_ang_vel_b", "ang_vel_noise_scale"),
         ObservationSourceSpec("tilt_angle", 1, "joint_group_position", "tilt_noise_scale", "morph_tilt"),
     ),
     landing_tuck_joint_group="morph_tilt",
-    thrust_loss_start_stage=1,
+    thrust_loss_start_stage=2,
+    takeoff_target_lin_vel_w=(0.0, 0.0, 0.3),
 )
