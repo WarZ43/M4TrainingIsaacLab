@@ -16,14 +16,14 @@ params:
     separate: True
     space:
       continuous:
-        mu_activation: sigmoid
+        mu_activation: None
         sigma_activation: None
 
         mu_init:
           name: default
         sigma_init:
           name: const_initializer
-          val: 0
+          val: -1.0
         fixed_sigma: True
     mlp:
       units: [256, 128, 64]
@@ -45,23 +45,26 @@ params:
   load_path: ''
 
   config:
-    name: atmo
+    # run_m4_config.py stamps this from m4_config.py.
+    name: atmo_combined_stage1
     env_name: rlgpu
     device: 'cuda:0'
     device_name: 'cuda:0'
     multi_gpu: True
     ppo: True
+    # PPO was producing non-finite policy std near epoch ~975. Keep full
+    # precision until the run is numerically stable again.
     mixed_precision: False
     normalize_input: True
-    normalize_value: True
+    normalize_value: False
     value_bootstrap: True
     num_actors: -1  # configured from the script (based on num_envs)
     reward_shaper:
       scale_value: 1.0
     normalize_advantage: True
-    gamma: 0.99
-    tau: 0.95
-    learning_rate: 2e-6
+    gamma: 0.999
+    tau: 0.97
+    learning_rate: 3e-6
     lr_schedule: adaptive
     schedule_type: legacy
     kl_threshold: 0.016
@@ -70,12 +73,12 @@ params:
     save_best_after: 100
     save_frequency: 50
     grad_norm: 1.0
-    entropy_coef: 0.01
+    entropy_coef: 0.001
     truncate_grads: True
     e_clip: 0.2
-    horizon_length: 24
+    horizon_length: 36
     minibatch_size: 24576
-    mini_epochs: 5
+    mini_epochs: 2
     critic_coef: 2
     clip_value: True
     seq_length: 4
